@@ -1,5 +1,6 @@
 <IfModule mod_rewrite.c>
-RewriteEngine on
+RewriteEngine On
 RewriteCond %{REQUEST_FILENAME} !-f
-RewriteRule . /task-manager-api/v1/index.php [L]
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [QSA,L]
 </IfModule>

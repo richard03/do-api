@@ -1,131 +1,121 @@
 <?php
+require 'flight/Flight.php';
 
-include './config.php';
+require './config.php';
 include './functions.php';
 
 if ($cfg_env == 'DEV') {
 	sleep(rand(0, 3)); // simulate random lag, for production deactivate this in config.php
 }
 
+
+
 // Attempt MySQL server connection. Assuming you are running MySQL server
-$db_link = mysqli_connect($db_server, $db_user, $db_password, $db_name);
- 
-// Check connection
-if($db_link === false) {
-	die('ERROR: Could not connect. ' . mysqli_connect_error());
-} 
+Flight::register('db_link', 'mysqli', array($db_server, $db_user, $db_password, $db_name));
+$db_link = Flight::db_link();
 
-// parse http request
-$path = explode('/', $_SERVER['REQUEST_URI']);
-array_shift($path); array_shift($path); array_shift($path); array_pop($path); // remove unwanted parts
+$db_statement_task_list = mysqli_prepare($db_link, 'SELECT * FROM tasks WHERE NOT status = "deleted" ORDER BY priority DESC LIMIT 999');
+Flight::set('db_statement_task_list', $db_statement_task_list);
 
-$method = strtolower($_SERVER['REQUEST_METHOD']);
+$db_statement_task = mysqli_prepare($db_link, 'SELECT * FROM tasks WHERE id = ? AND NOT status = "deleted" LIMIT 1');
+Flight::set('db_statement_task', $db_statement_task);
+
+$db_statement_task_insert = mysqli_prepare($db_link, 'REPLACE INTO tasks (id, title, acceptance_criteria, due_date, status, priority) VALUES (?, ?, ?, ?, ?, ?)');
+Flight::set('db_statement_task_insert', $db_statement_task_insert);
+
+$db_statement_task_delete = mysqli_prepare($db_link, 'UPDATE tasks SET status = "deleted" WHERE id = ?');
+Flight::set('db_statement_task_delete', $db_statement_task_delete);
 
 
-function writeTask($taskId, &$data, $db_link) {
 
-	// 1. identify task
-	if ( ($taskId == null) && isset($data['id']) ) {
-		$taskId = $data['id'];
+// list tasks
+Flight::route('GET /tasks/', function() {
+	$db_statement = Flight::get('db_statement_task_list');
+	Flight::json(fetchList($db_statement));
+});
+// create task
+Flight::route('POST /tasks/', function(){
+	if ($_POST['id'] == null) {
+		Flight::json(getFailDataObject('idNotSpecified', 'Task ID is not specified') );
 	}
-	if ($taskId == null) {
-		return (object)array('status' => 'error', 'statusCode' => 'idNotSpecified', 'message' => 'Task ID is not specified');
-	}
-
-	// 2. get current task data
-	$db_query = 'SELECT * FROM tasks WHERE id = ? LIMIT 1';
-	$db_statement_read = mysqli_prepare($db_link, $db_query);
-	mysqli_stmt_bind_param($db_statement_read, "s", $taskId);
-	mysqli_stmt_execute($db_statement_read);
-	mysqli_stmt_bind_result($db_statement_read, $id, $title, $acceptanceCriteria, $dueDate, $status, $priority);
-
-	if (mysqli_stmt_fetch($db_statement_read)) {
-		$result = (object)array('id' => $id, 'title' => $title, 'acceptance_criteria' => $acceptanceCriteria, 'due_date' => $dueDate, 'status' => $status, 'priority' => $priority);
-	}
-	mysqli_stmt_close($db_statement_read);
-
-	// 3. validate inputs and update data
-	if (isset($data['id']) && ($data['id'] != null)) {
-		$id = $data['id'];
-	} else {
-		$id = $taskId;
-	}
-	if (isset($data['title']) && ($data['title'] != null)) {
-		$title = $data['title'];
-	}
-	if (isset($data['acceptance_criteria']) && ($data['acceptance_criteria'] != null)) {
-		$acceptanceCriteria = $data['acceptance_criteria'];
-	}
-	if (isset($data['due_date']) && ($data['due_date'] != null)) {
-		$dueDate = $data['due_date'];
-	}
-	if (isset($data['status']) && ($data['status'] != null)) {
-		$status = $data['status'];
-	}
-	if (isset($data['priority']) && ($data['priority'] != null)) {
-		$priority = $data['priority'];
-	}
-
-	// 4. save updated data to db
-	$db_query = 'REPLACE INTO tasks (id, title, acceptance_criteria, due_date, status, priority) VALUES (?, ?, ?, ?, ?, ?)';
-	$db_statement = mysqli_prepare($db_link, $db_query);
+	$id = $_POST['id'];
+	$title = getPostItem('title');
+	$acceptanceCriteria = getPostItem('acceptance_criteria');
+	$dueDate = getPostItem('due_date');
+	$status = getPostItem('status');
+	$priority = getPostItem('priority');
+	$db_statement = Flight::get('db_statement_task_insert');
 	mysqli_stmt_bind_param($db_statement, "sssssi", $id, $title, $acceptanceCriteria, $dueDate, $status, $priority);
-	
 	if (mysqli_stmt_execute($db_statement)) {
 		mysqli_stmt_close($db_statement);
-		return (object)array('status' => 'OK');
+		Flight::json(getSuccessDataObject());
 	} else {
-		return (object)array('status' => 'error', 'statusCode' => 'dbInsertFailed', 'message' => 'Database insert failed');
+		Flight::json(getFailDataObject('dbInsertFailed', 'Database insert failed'));
 	}
-}
-
-// send the output headers
-header('Content-Type: application/json');
-
-
-// start the output
-if (isset($path[0])) {
-	switch ($path[0]) {
-		case 'tasks':
-			if (isset($path[1])) {
-				$taskId = $path[1];
-				switch ($method) {
-					case 'get': 
-						$db_query = 'SELECT * FROM tasks WHERE id = ? AND NOT status = "deleted" LIMIT 1';
-						$db_statement = mysqli_prepare($db_link, $db_query);
-						mysqli_stmt_bind_param($db_statement, "s", $taskId);
-						$results = fetchList($db_statement);
-						echo json_encode($results[0]);
-						break;
-					case 'post': 
-						echo json_encode(writeTask($taskId, $_POST, $db_link));
-						break;
-					case 'delete':
-						$db_query = 'UPDATE tasks SET status = "deleted" WHERE id = ?';
-						$db_statement = mysqli_prepare($db_link, $db_query) or die(mysqli_error($db_link));
-						mysqli_stmt_bind_param($db_statement, "s", $taskId);
-						echo json_encode(executeStatement($db_statement));
-						break;
-					default: fail('undefinedMethod');
-				}
-			} else {
-				switch ($method) {
-					case 'post':
-						echo json_encode(writeTask(null, $_POST, $db_link));
-						break;
-					case 'get':
-						$db_query = 'SELECT * FROM tasks WHERE NOT status = "deleted" ORDER BY priority DESC LIMIT 999';
-						$db_statement = mysqli_prepare($db_link, $db_query);
-						echo json_encode(fetchList($db_statement));
-						break;
-					default: fail('undefinedMethod');
-				}
-			}
-			break;
-		default: fail('undefinedResource', "Method '$path[0]' doesn't exist.");
+});
+// get task
+Flight::route('GET /tasks/@taskId/', function($taskId) {
+	$db_statement = Flight::get('db_statement_task');
+	mysqli_stmt_bind_param($db_statement, "s", $taskId);
+	$results = fetchList($db_statement);
+	if (isset($results[0])) {
+		Flight::json($results[0]);
+	} else {
+		Flight::json((object)array());
 	}
-} else fail('missingResourceLocator');
+});
+// update task
+Flight::route('POST /tasks/@taskId/', function($taskId) {
+
+	if ($taskId == null) {
+		Flight::json(getFailDataObject('idNotSpecified', 'Task ID is not specified') );
+	}
+	$title = getPostItem('title');
+	$acceptanceCriteria = getPostItem('acceptance_criteria');
+	$dueDate = getPostItem('due_date');
+	$status = getPostItem('status');
+	$priority = getPostItem('priority');
+
+	$db_statement = Flight::get('db_statement_task');
+	mysqli_stmt_bind_param($db_statement, "s", $taskId);
+	mysqli_stmt_execute($db_statement);
+	$results = fetchList($db_statement);
+	if (isset($results[0])) { // record exists
+		$result = $results[0];
+		if ($title == '') $title = $result->title;
+		if ($acceptanceCriteria == '') $acceptanceCriteria = $result->acceptance_criteria;
+		if ($dueDate == '') $dueDate = $result->due_date;
+		if ($status == '') $status = $result->status;
+		if ($priority == '') $priority = $result->priority;
+	} else {
+		Flight::json(getFailDataObject('dbUpdateFailed', 'Database record doesn\'t exist'));
+	}
+	// mysqli_stmt_close($db_statement);
+
+	$db_statement = Flight::get('db_statement_task_insert');
+	mysqli_stmt_bind_param($db_statement, "sssssi", $taskId, $title, $acceptanceCriteria, $dueDate, $status, $priority);
+	if (mysqli_stmt_execute($db_statement)) {
+		// mysqli_stmt_close($db_statement);
+		Flight::json(getSuccessDataObject());
+	} else {
+		Flight::json(getFailDataObject('dbUpdateFailed', 'Database update failed'));
+	}
+});
+// delete task
+Flight::route('DELETE /tasks/@taskId/', function($taskId) {
+	$db_statement = Flight::get('db_statement_task_delete');
+	mysqli_stmt_bind_param($db_statement, "s", $taskId);
+	if (mysqli_stmt_execute($db_statement)) {
+		// mysqli_stmt_close($db_statement);
+		Flight::json(getSuccessDataObject());
+	} else {
+		Flight::json(getFailDataObject('dbDeleteFailed', 'Deleting item ' . $taskId . ' failed'));
+	}
+});
+
+
+
+Flight::start();
 
 // Close connection
-mysqli_close($db_link);
-
+// mysqli_close($db_link);
