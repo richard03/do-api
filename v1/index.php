@@ -20,7 +20,7 @@ Flight::set('db_statement_task_list', $db_statement_task_list);
 $db_statement_task = mysqli_prepare($db_link, 'SELECT * FROM tasks WHERE id = ? AND NOT status = "deleted" LIMIT 1');
 Flight::set('db_statement_task', $db_statement_task);
 
-$db_statement_task_insert = mysqli_prepare($db_link, 'REPLACE INTO tasks (id, title, acceptance_criteria, due_date, status, priority) VALUES (?, ?, ?, ?, ?, ?)');
+$db_statement_task_insert = mysqli_prepare($db_link, 'REPLACE INTO tasks (id, title, owner, acceptance_criteria, due_date, status, priority) VALUES (?, ?, ?, ?, ?, ?, ?)');
 Flight::set('db_statement_task_insert', $db_statement_task_insert);
 
 $db_statement_task_delete = mysqli_prepare($db_link, 'UPDATE tasks SET status = "deleted" WHERE id = ?');
@@ -40,12 +40,13 @@ Flight::route('POST /tasks/', function(){
 	}
 	$id = $_POST['id'];
 	$title = getPostItem('title');
+	$owner = getPostItem('owner');
 	$acceptanceCriteria = getPostItem('acceptance_criteria');
 	$dueDate = getPostItem('due_date');
 	$status = getPostItem('status');
 	$priority = getPostItem('priority');
 	$db_statement = Flight::get('db_statement_task_insert');
-	mysqli_stmt_bind_param($db_statement, "sssssi", $id, $title, $acceptanceCriteria, $dueDate, $status, $priority);
+	mysqli_stmt_bind_param($db_statement, "ssssssi", $id, $title, $owner, $acceptanceCriteria, $dueDate, $status, $priority);
 	if (mysqli_stmt_execute($db_statement)) {
 		mysqli_stmt_close($db_statement);
 		Flight::json(getSuccessDataObject());
@@ -71,6 +72,7 @@ Flight::route('POST /tasks/@taskId/', function($taskId) {
 		Flight::json(getFailDataObject('idNotSpecified', 'Task ID is not specified') );
 	}
 	$title = getPostItem('title');
+	$owner = getPostItem('owner');
 	$acceptanceCriteria = getPostItem('acceptance_criteria');
 	$dueDate = getPostItem('due_date');
 	$status = getPostItem('status');
@@ -83,6 +85,7 @@ Flight::route('POST /tasks/@taskId/', function($taskId) {
 	if (isset($results[0])) { // record exists
 		$result = $results[0];
 		if ($title == '') $title = $result->title;
+		if ($owner == '') $owner = $result->owner;
 		if ($acceptanceCriteria == '') $acceptanceCriteria = $result->acceptance_criteria;
 		if ($dueDate == '') $dueDate = $result->due_date;
 		if ($status == '') $status = $result->status;
@@ -93,7 +96,7 @@ Flight::route('POST /tasks/@taskId/', function($taskId) {
 	// mysqli_stmt_close($db_statement);
 
 	$db_statement = Flight::get('db_statement_task_insert');
-	mysqli_stmt_bind_param($db_statement, "sssssi", $taskId, $title, $acceptanceCriteria, $dueDate, $status, $priority);
+	mysqli_stmt_bind_param($db_statement, "ssssssi", $taskId, $title, $owner, $acceptanceCriteria, $dueDate, $status, $priority);
 	if (mysqli_stmt_execute($db_statement)) {
 		// mysqli_stmt_close($db_statement);
 		Flight::json(getSuccessDataObject());
