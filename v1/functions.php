@@ -4,7 +4,7 @@
 	function getSuccessDataObject($message = '') {
 		return (object)array('status' => 'OK', 'message' => $message);
 	}
- 	
+
 	function getFailDataObject($statusCode, $message = '') {
 		return (object)array('status' => 'error', 'statusCode' => $statusCode, 'message' => $message);
 	}
@@ -54,4 +54,42 @@
 		}
 	}
 
+	/**
+	 * Generate random ID
+	 */
+	function getRandomId() {
+		$maxId = 9999999999999999;
+		return rand(0, $maxId);
+	}
 
+	/**
+	 *
+	 */
+	function getUserFromRequest() {
+		// TODO: improve this to actually get user from request
+		return 'richard.sery.3@gmail.com';
+	}
+
+
+	function getHeadersFromRequest() {
+
+		$arh = array();
+		$rx_http = '/\AHTTP_/';
+		foreach($_SERVER as $key => $val) {
+			if( preg_match($rx_http, $key) ) {
+				$arh_key = preg_replace($rx_http, '', $key);
+				$rx_matches = array();
+				// do some nasty string manipulations to restore the original letter case
+				// this should work in most cases
+				$rx_matches = explode('_', $arh_key);
+				if( count($rx_matches) > 0 and strlen($arh_key) > 2 ) {
+					foreach($rx_matches as $ak_key => $ak_val) {
+						$rx_matches[$ak_key] = ucfirst($ak_val);
+					}
+					$arh_key = implode('-', $rx_matches);
+				}
+				$arh[$arh_key] = $val;
+			}
+		}
+		return( $arh );
+  } 
