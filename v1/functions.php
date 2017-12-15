@@ -44,11 +44,11 @@
 	}
 
 	/**
-	 * Extract POST item
+	 * Extract POST item from Flight request object
 	 */
-	function getPostItem($itemName) {
-		if (isset($_POST[$itemName])) {
-			return strval($_POST[$itemName]);
+	function getPostItem(&$request, $itemName) {
+		if (isset($request->data[$itemName])) {
+			return strval($request->data[$itemName]);
 		} else {
 			return '';
 		}
@@ -66,30 +66,14 @@
 	 *
 	 */
 	function getUserFromRequest() {
-		// TODO: improve this to actually get user from request
-		return 'richard.sery.3@gmail.com';
+		if ( !isset( $_SERVER['HTTP_AUTHORIZATION'] ) || ( $_SERVER['HTTP_AUTHORIZATION'] == '') ) {
+			return null;
+		} else {
+			$parts = explode(" ", $_SERVER['HTTP_AUTHORIZATION']);
+			$token = $parts[1];
+			$response = file_get_contents('https://www.googleapis.com/oauth2/v1/userinfo?access_token='.$token);
+			$data = json_decode($response, true);
+			return $data['email'];
+		}
 	}
 
-
-	function getHeadersFromRequest() {
-
-		$arh = array();
-		$rx_http = '/\AHTTP_/';
-		foreach($_SERVER as $key => $val) {
-			if( preg_match($rx_http, $key) ) {
-				$arh_key = preg_replace($rx_http, '', $key);
-				$rx_matches = array();
-				// do some nasty string manipulations to restore the original letter case
-				// this should work in most cases
-				$rx_matches = explode('_', $arh_key);
-				if( count($rx_matches) > 0 and strlen($arh_key) > 2 ) {
-					foreach($rx_matches as $ak_key => $ak_val) {
-						$rx_matches[$ak_key] = ucfirst($ak_val);
-					}
-					$arh_key = implode('-', $rx_matches);
-				}
-				$arh[$arh_key] = $val;
-			}
-		}
-		return( $arh );
-  } 

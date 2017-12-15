@@ -38,85 +38,83 @@ Flight::set('db_statement_task_delete', $db_statement_task_delete);
 
 // list tasks
 Flight::route('GET /tasks/', function () {
-	$db_statement = Flight::get('db_statement_task_list');
-	mysqli_stmt_bind_param($db_statement, "s", getUserFromRequest());
-	Flight::json(fetchList($db_statement));
-});
-// create task
-Flight::route('POST /tasks/', function () {
-	if ($_POST['id'] == null) {
-		Flight::json(getFailDataObject('idNotSpecified', 'Task ID is not specified') );
-	}
-	$id = $_POST['id'];
-	$title = getPostItem('title');
-	$owner = getPostItem('owner');
-	$acceptanceCriteria = getPostItem('acceptance_criteria');
-	$dueDate = getPostItem('due_date');
-	$status = getPostItem('status');
-	$priority = getPostItem('priority');
-	$db_statement = Flight::get('db_statement_task_insert');
-	mysqli_stmt_bind_param($db_statement, "ssssssi", $id, $title, $owner, $acceptanceCriteria, $dueDate, $status, $priority);
-	if (mysqli_stmt_execute($db_statement)) {
-		mysqli_stmt_close($db_statement);
-		Flight::json(getSuccessDataObject());
+	$user = getUserFromRequest();
+	if ( $user == null ) {
+		Flight::json(getFailDataObject('authorizationFailed', 'Authorization failed'), $code = 403 );
 	} else {
-		Flight::json(getFailDataObject('dbInsertFailed', 'Database insert failed'));
+		$user = getUserFromRequest();
+	// $user = 'richard.sery.3@gmail.com';
+		$db_statement = Flight::get('db_statement_task_list');
+		mysqli_stmt_bind_param($db_statement, "s", $user);
+		Flight::json(fetchList($db_statement));
 	}
 });
 // get task
 Flight::route('GET /tasks/@taskId/', function ($taskId) {
-	$db_statement = Flight::get('db_statement_task');
-	mysqli_stmt_bind_param($db_statement, "ss", $taskId, getUserFromRequest());
-	$results = fetchList($db_statement);
-	if (isset($results[0])) {
-		Flight::json($results[0]);
+	$user = getUserFromRequest();
+	if ( $user == null ) {
+		Flight::json(getFailDataObject('authorizationFailed', 'Authorization failed'), $code = 403 );
 	} else {
-		Flight::json((object)array());
+		$db_statement = Flight::get('db_statement_task');
+		mysqli_stmt_bind_param($db_statement, "ss", $taskId, $user);
+		$results = fetchList($db_statement);
+		if (isset($results[0])) {
+			Flight::json($results[0]);
+		} else {
+			Flight::json((object)array());
+		}
 	}
 });
-// update task
+// create or update a task
 Flight::route('POST /tasks/@taskId/', function ($taskId) {
-
-	if ($taskId == null) {
-		Flight::json(getFailDataObject('idNotSpecified', 'Task ID is not specified') );
-	}
-	$title = getPostItem('title');
-	$owner = getPostItem('owner');
-	$acceptanceCriteria = getPostItem('acceptance_criteria');
-	$dueDate = getPostItem('due_date');
-	$status = getPostItem('status');
-	$priority = getPostItem('priority');
-
-	$db_statement = Flight::get('db_statement_task');
-	mysqli_stmt_bind_param($db_statement, "ss", $taskId, getUserFromRequest());
-	mysqli_stmt_execute($db_statement);
-	$results = fetchList($db_statement);
-	if (isset($results[0])) { // record exists
-		$result = $results[0];
-		if ($title == '') $title = $result->title;
-		if ($owner == '') $owner = $result->owner;
-		if ($acceptanceCriteria == '') $acceptanceCriteria = $result->acceptance_criteria;
-		if ($dueDate == '') $dueDate = $result->due_date;
-		if ($status == '') $status = $result->status;
-		if ($priority == '') $priority = $result->priority;
+	$user = getUserFromRequest();
+	if ( $user == null ) {
+		Flight::json(getFailDataObject('authorizationFailed', 'Authorization failed'), $code = 403 );
+	} else if ($taskId == null) {
+		Flight::json(getFailDataObject('idNotSpecified', 'Task ID is not specified'), $code = 400 );
 	} else {
-		Flight::json(getFailDataObject('dbUpdateFailed', 'Database record doesn\'t exist'));
-	}
-	// mysqli_stmt_close($db_statement);
+		$request = Flight::request();
+		$title = getPostItem($request, 'title');
+		$owner = getPostItem($request, 'owner');
+		$acceptanceCriteria = getPostItem($request, 'acceptance_criteria');
+		$dueDate = getPostItem($request, 'due_date');
+		$status = getPostItem($request, 'status');
+		$priority = getPostItem($request, 'priority');
 
-	$db_statement = Flight::get('db_statement_task_insert');
-	mysqli_stmt_bind_param($db_statement, "ssssssi", $taskId, $title, $owner, $acceptanceCriteria, $dueDate, $status, $priority);
-	if (mysqli_stmt_execute($db_statement)) {
-		// mysqli_stmt_close($db_statement);
-		Flight::json(getSuccessDataObject());
-	} else {
-		Flight::json(getFailDataObject('dbUpdateFailed', 'Database update failed'));
+		// try to fill missing data from original record, if there is any
+		$db_statement = Flight::get('db_statement_task');
+		mysqli_stmt_bind_param($db_statement, "ss", $taskId, $user);
+		mysqli_stmt_execute($db_statement);
+		$results = fetchList($db_statement);
+		if (isset($results[0])) {
+			$result = $results[0];
+			if ($title == '') $title = $result->title;
+			if ($owner == '') $owner = $result->owner;
+			if ($acceptanceCriteria == '') $acceptanceCriteria = $result->acceptance_criteria;
+			if ($dueDate == '') $dueDate = $result->due_date;
+			if ($status == '') $status = $result->status;
+			if ($priority == '') $priority = $result->priority;	
+			// mysqli_stmt_close($db_statement);
+		}
+		// now insert the task
+		$db_statement = Flight::get('db_statement_task_insert');
+		mysqli_stmt_bind_param($db_statement, "ssssssi", $taskId, $title, $owner, $acceptanceCriteria, $dueDate, $status, $priority);
+		if (mysqli_stmt_execute($db_statement)) {
+			if (mysqli_stmt_affected_rows($db_statement) < 1) {
+				Flight::json(getFailDataObject('dbUpdateFailed', 'No database records were affected by the update'), $code = 500);
+			}
+			mysqli_stmt_close($db_statement);
+			Flight::json(getSuccessDataObject());
+		} else {
+			Flight::json(getFailDataObject('dbUpdateFailed', 'Database update failed'), $code = 500);
+		}
 	}
 });
 // delete task
 Flight::route('DELETE /tasks/@taskId/', function ($taskId) {
+	$user = getUserFromRequest();
 	$db_statement = Flight::get('db_statement_task_delete');
-	mysqli_stmt_bind_param($db_statement, "ss", $taskId, getUserFromRequest());
+	mysqli_stmt_bind_param($db_statement, "ss", $taskId, $user);
 	if (mysqli_stmt_execute($db_statement)) {
 		// mysqli_stmt_close($db_statement);
 		Flight::json(getSuccessDataObject());
